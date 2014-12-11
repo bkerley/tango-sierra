@@ -2,17 +2,19 @@ require 'riak'
 require 'sinatra'
 require 'date'
 require 'json'
+require './lib/merger'
 
 CLIENT = Riak::Client.new pb_port: 17017
 DAY_BUCKET = CLIENT.bucket 'tango-sierra-day'
-MERGE_QUEUE = []
-
-set :show_exceptions, false
+Merger.supervise_as :merger
 
 helpers do
-  def merge
+  def merger
+    Celluloid::Actor[:merger]
   end
 end
+
+set :show_exceptions, false
 
 error do
   e = env['sinatra.error']
@@ -40,6 +42,10 @@ post '/collections/:collection_name' do
 
     day_list = days[stamp] || []
 
+    offset = time.to_time.to_f - time.to_date.to_time.to_f
+    datum.delete 'time'
+    datum['offset'] = offset.to_f
+
     day_list << datum
 
     days[stamp] = day_list
@@ -47,10 +53,12 @@ post '/collections/:collection_name' do
 
   days.each do |k,v|
     blob = DAY_BUCKET.new k
-    blob.data = v.to_json
+    blob.data = v
     blob.content_type = 'application/json'
     blob.store
   end
+
+  merger.enqueue days.keys
 
   days.values.flatten.length.to_s
 end
