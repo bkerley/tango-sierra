@@ -40,6 +40,8 @@ class Merger
       obj.store
     end
 
+    @queue.delete first
+
     async.flush
   end
 end
